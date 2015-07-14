@@ -7,8 +7,13 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin( 9600 );
   
-  elbow.attach( 6 );
-  wrist.attach( 7 );
+  elbow.attach( 2 );
+  wrist.attach( 3 );
+  
+  elbow.write( 90 );
+  wrist.write( 90 );
+  
+  //while(1);
   
   while( millis() < 5000 ) {
     // Filtering
@@ -27,6 +32,12 @@ void setup() {
     
     delay( 50 );
   }
+  
+  Serial.print("Calibration data: ");
+  Serial.print( min0 ); Serial.print('\t');
+  Serial.print( max0 ); Serial.print('\t');
+  Serial.print( min1 ); Serial.print('\t');
+  Serial.print( max1 ); Serial.print('\n');
 }
 
 void loop() {
@@ -47,16 +58,19 @@ void loop() {
 //  max1 = max( max1, average1 );
   
   // Joint angle estimation
-  int angElbow = map( average0, min0, max0, 80, 180 );
-  int angWrist = map( average1, min1, max1, 140, 30 );
+  int angElbow = map( average0, min0, max0, 0, 180 );
+  int angWrist = map( average1, min1, max1, 30, 180 );
   
   // Motion constrain
-  angElbow = constrain( angElbow, 80, 180 );
-  angWrist = constrain( angWrist, 0, min(angElbow + 20, 180) );
+  //angElbow = constrain( angElbow, 10, 180 );
+  //angWrist = constrain( angWrist, max( 0, angElbow + 10), 180 );
   
   // Actuate
   elbow.write( angElbow );
   wrist.write( angWrist );
+//  elbow.write( 90 );
+//  wrist.write( 90 );
+  
   
   delay(50);
   
@@ -64,4 +78,9 @@ void loop() {
   Serial.print( analogRead(A0) );
   Serial.print('\t');
   Serial.println( analogRead(A1) );
+
+  // Print angles
+//  Serial.print( angElbow );
+//  Serial.print('\t');
+//  Serial.println( angWrist );
 }

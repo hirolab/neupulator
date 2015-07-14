@@ -10,7 +10,7 @@ void getLinePath( float x0, float x1, int n, float *x ) {
 }
 
 void DKFunc( float* X, float* Y ) {
-  float q1 = 75*PI/180.0 - X[0], q2 = 97*PI/180.0 - X[1], q3 = - 110*PI/180.0 + X[2], q4 = PI/2 - X[3];
+  float q1 = 80*PI/180.0 - X[0], q2 = 97*PI/180.0 - X[1], q3 = - 110*PI/180.0 + X[2], q4 = PI/2 - X[3];
   const float l1 = 18.25e-3, l2 = 147.5e-3, l3 = 187.5e-3, l4 = 85e-3, h1 = 70e-3;
   
   float r = l1 + l2*sin(q2) + l3*cos(q3-q2) + l4*cos(q4+q3-q2);
@@ -155,7 +155,7 @@ void loop() {
   const int N = 5;
   
   
-  moveTo( Q, 20e-2, 0, 20e-2, -20*PI/180.0, 1000, 50 );
+  moveTo( Q, 27e-2, 0, 20e-2, -20*PI/180.0, 1000, 50 );
   while( digitalRead( 7 ) == HIGH );
   
   long int cumClock = 0;
@@ -165,14 +165,14 @@ void loop() {
     moveHome( Q );
     
     float th = random(-15, 45) * PI/180.0;
-    float r = random(15, 20) * 1e-2;
+    float r = random(10, 15) * 1e-2;
     
     Serial.print("\n  New setpoint: \t th = ");
     Serial.print( th*180/PI );
     Serial.print(",\t r = ");
     Serial.println( r*1e2 );
     
-    moveTo( Q, 400e-3-r*cos(th), 0, 250e-3-r*sin(th), -th - 20*PI/180, 1000, 50 );
+    moveTo( Q, 400e-3-r*cos(th), 0, 250e-3-r*sin(th), 0, 1000, 50 );
     
     Serial.println("    Go!");
     long int t0 = millis();
