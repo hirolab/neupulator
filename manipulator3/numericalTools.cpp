@@ -128,7 +128,7 @@ int solveNLS( void (*func)(float*, float*), float* Y, int n, float* X ) {
   float B[n], dX[n];
   float tmp;
   const float TOL_SQR = 1e-6;
-  const int MAX_ITER = 300;
+  const int MAX_ITER = 100;
   
   for( int iter = 0; iter < MAX_ITER; iter++ ) {
     
