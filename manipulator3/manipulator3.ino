@@ -1,146 +1,170 @@
 #include <Servo.h>
 #include "numericalTools.h"
 
-float Q[4];
-Servo servo[5];
+#define DOF 5
+#define DT_MS 50
+#define MAX_SPEED 20e-2
 
-void getLinePath( float x0, float x1, int n, float *x ) {
-  for( int k = 0; k < n; k++ )
-    x[k] = (x1-x0)*(-cos(k*PI/n)/2.0 + 0.5) + x0;
-}
+float Q[DOF];
+Servo joint[DOF];
+Servo gripper;
 
-/*
-void DKFunc( float* Q, float* S ) {
-  float q1 = 80*PI/180.0 - Q[0], q2 = -Q[1] + 97*PI/180.0, q3 = 110*PI/180.0 - Q[2], q4 = -PI/2 + Q[3];
-  const float l1 = 18.25e-3, l2 = 147.5e-3, l3 = 187.5e-3, l4 = 85e-3, h1 = 70e-3;
+void increment( float* Q, float* dQ ) {
   
-  float ra  = l1 + l2*sin(q2) + l3*cos(q2+q3);
-  float rb  = l4*cos(q2+q3)*cos(q4);
-  float z = h1 + l2*cos(q2) - l3*sin(q2+q3) - l4*sin(q2+q3)*cos(q4);
-  float qz = q1 + q4;
-
-  float x = ra*cos(q1) + rb*cos(qz);
-  float y = ra*sin(q1) + rb*sin(qz);
+  float dir[] = { -1, 1, -1, 1, -1 };
+  float offset[] = { 100*PI/180, 90*PI/180, 90*PI/180, 70*PI/180, 90*PI/180 };
+        
+  const float TOL = 0.2;
   
-  S[0] = x;
-  S[1] = y;
-  S[2] = z;
-  S[3] = qz;
+  bool fail = false;
+  for( int n = 0; n < 5; n++ )
+    if( fabs( dQ[n] ) > TOL || isnan( dQ[n] ) )
+      fail = true;
+    
+  if( fail ) {
+    Serial.println( "Excessive angle increment!" );
+    for( int n = 0; n < 5; n++ )
+      dQ[n] = random( -100, 100 ) / 100.0 * 5 * PI / 180;
+  }
+    
+  for( int n = 0; n < 5; n++ ) {
+    Q[n] = asin( sin( Q[n] + dQ[n] ) );
+    joint[n].write( ( dir[n] * Q[n] + offset[n] ) * 180 / PI );
+  }
 }
-*/
+  
 
 void DKFunc( float* Q, float* S ) {
-  float q1 = 80*PI/180.0 - Q[0], q2 = -Q[1] + 97*PI/180.0, q3 = 110*PI/180.0 - Q[2], q4 = -PI/2 + Q[3];
+  
+  float q1 = Q[0], 
+        q2 = Q[1],
+        q3 = Q[2],
+        q4 = Q[3],
+        q5 = Q[4];
 
   float (*F)[1] = (float(*)[1]) S;
   
-  F[0][0] = cos(q1+q2+q3)*9.375000000000001E-2+cos(-q1-q2-q3+q4*1.0)*2.125\
-E-2+cos(-q1+q2*1.0+q3*1.0-q4)*2.125E-2+cos(q1+q2+q3+q4)*2.125E-2-cos(-q1+q\
-4*1.0)*4.25E-2+cos(q1+q4)*4.25E-2+sin(-q1+q2*1.0)*7.375E-2+cos(-q1+q2*1.0+\
-q3*1.0)*9.374999999999999E-2+sin(q1+q2)*7.375E-2+cos(-q1+q2*1.0+q3*1.0+q4*\
-1.0)*2.125E-2+cos(q1)*1.825E-2;
-  F[1][0] = sin(q1+q2+q3)*9.375000000000001E-2-sin(-q1-q2-q3+q4*1.0)*2.125\
-E-2-sin(-q1+q2*1.0+q3*1.0-q4)*2.125E-2+sin(q1+q2+q3+q4)*2.125E-2+cos(-q1+q\
-2*1.0)*7.375E-2-cos(q1+q2)*7.375E-2+sin(-q1+q4*1.0)*4.25E-2+sin(q1+q4)*4.2\
-5E-2-sin(-q1+q2*1.0+q3*1.0)*9.374999999999999E-2-sin(-q1+q2*1.0+q3*1.0+q4*\
-1.0)*2.125E-2+sin(q1)*1.825E-2;
-  F[2][0] = sin(q2+q3+q4)*-4.25E-2+sin(-q2-q3+q4*1.0)*4.25E-2-sin(q2+q3)*1\
-.875E-1+cos(q2)*1.475E-1+sin(q4)*5.204748896376251E-18+7.0E-2;
-  F[3][0] = q1 + q4;
+  F[0][0] = cos(q1)*cos(3.141592653589793*(-1.0/2.0)+q2)*(2.9E1/2.0E2)+cos\
+(3.141592653589793*(1.0/2.0)+q5)*sin(q1)*sin(q4)*(1.0/1.0E1)-cos(q1)*cos(q\
+3)*sin(3.141592653589793*(-1.0/2.0)+q2)*(1.97E2/1.0E3)-cos(q1)*cos(3.14159\
+2653589793*(-1.0/2.0)+q2)*sin(q3)*(1.97E2/1.0E3)-cos(q1)*cos(q3)*sin(3.141\
+592653589793*(-1.0/2.0)+q2)*sin(3.141592653589793*(1.0/2.0)+q5)*(1.0/1.0E1\
+)-cos(q1)*cos(3.141592653589793*(-1.0/2.0)+q2)*sin(q3)*sin(3.1415926535897\
+93*(1.0/2.0)+q5)*(1.0/1.0E1)+cos(q1)*cos(q3)*cos(q4)*cos(3.141592653589793\
+*(-1.0/2.0)+q2)*cos(3.141592653589793*(1.0/2.0)+q5)*(1.0/1.0E1)-cos(q1)*co\
+s(q4)*cos(3.141592653589793*(1.0/2.0)+q5)*sin(q3)*sin(3.141592653589793*(-\
+1.0/2.0)+q2)*(1.0/1.0E1);
+  F[1][0] = cos(3.141592653589793*(-1.0/2.0)+q2)*sin(q1)*(2.9E1/2.0E2)-cos\
+(q3)*sin(q1)*sin(3.141592653589793*(-1.0/2.0)+q2)*(1.97E2/1.0E3)-cos(3.141\
+592653589793*(-1.0/2.0)+q2)*sin(q1)*sin(q3)*(1.97E2/1.0E3)-cos(q1)*cos(3.1\
+41592653589793*(1.0/2.0)+q5)*sin(q4)*(1.0/1.0E1)-cos(q3)*sin(q1)*sin(3.141\
+592653589793*(-1.0/2.0)+q2)*sin(3.141592653589793*(1.0/2.0)+q5)*(1.0/1.0E1\
+)-cos(3.141592653589793*(-1.0/2.0)+q2)*sin(q1)*sin(q3)*sin(3.1415926535897\
+93*(1.0/2.0)+q5)*(1.0/1.0E1)+cos(q3)*cos(q4)*cos(3.141592653589793*(-1.0/2\
+.0)+q2)*cos(3.141592653589793*(1.0/2.0)+q5)*sin(q1)*(1.0/1.0E1)-cos(q4)*co\
+s(3.141592653589793*(1.0/2.0)+q5)*sin(q1)*sin(q3)*sin(3.141592653589793*(-\
+1.0/2.0)+q2)*(1.0/1.0E1);
+  F[2][0] = sin(3.141592653589793*(-1.0/2.0)+q2)*(-2.9E1/2.0E2)-cos(q3)*co\
+s(3.141592653589793*(-1.0/2.0)+q2)*(1.97E2/1.0E3)+sin(q3)*sin(3.1415926535\
+89793*(-1.0/2.0)+q2)*(1.97E2/1.0E3)-cos(q3)*cos(3.141592653589793*(-1.0/2.\
+0)+q2)*sin(3.141592653589793*(1.0/2.0)+q5)*(1.0/1.0E1)+sin(q3)*sin(3.14159\
+2653589793*(-1.0/2.0)+q2)*sin(3.141592653589793*(1.0/2.0)+q5)*(1.0/1.0E1)-\
+cos(q3)*cos(q4)*cos(3.141592653589793*(1.0/2.0)+q5)*sin(3.141592653589793*\
+(-1.0/2.0)+q2)*(1.0/1.0E1)-cos(q4)*cos(3.141592653589793*(-1.0/2.0)+q2)*co\
+s(3.141592653589793*(1.0/2.0)+q5)*sin(q3)*(1.0/1.0E1)+6.877E-2;
+  F[3][0] = asin(cos(3.141592653589793*(1.0/2.0)+q5)*(sin(q4)*(cos(q3)*cos\
+(3.141592653589793*(-1.0/2.0)+q2)*6.123233995736766E-17-sin(q3)*sin(3.1415\
+92653589793*(-1.0/2.0)+q2)*6.123233995736766E-17+6.123233995736766E-17)+co\
+s(q4)*(cos(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)+cos(3.141592653589793*\
+(-1.0/2.0)+q2)*sin(q3)))-sin(3.141592653589793*(1.0/2.0)+q5)*(-cos(q3)*cos\
+(3.141592653589793*(-1.0/2.0)+q2)+sin(q3)*sin(3.141592653589793*(-1.0/2.0)\
++q2)-cos(q4)*(cos(q3)*cos(3.141592653589793*(-1.0/2.0)+q2)*6.1232339957367\
+66E-17-sin(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)*6.123233995736766E-17+\
+6.123233995736766E-17)*6.123233995736766E-17+sin(q4)*(cos(q3)*sin(3.141592\
+653589793*(-1.0/2.0)+q2)+cos(3.141592653589793*(-1.0/2.0)+q2)*sin(q3))*6.1\
+23233995736766E-17+3.749399456654644E-33));
+  F[4][0] = -atan((cos(3.141592653589793*(1.0/2.0)+q5)*(-cos(q3)*cos(3.141\
+592653589793*(-1.0/2.0)+q2)+sin(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)-c\
+os(q4)*(cos(q3)*cos(3.141592653589793*(-1.0/2.0)+q2)*6.123233995736766E-17\
+-sin(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)*6.123233995736766E-17+6.1232\
+33995736766E-17)*6.123233995736766E-17+sin(q4)*(cos(q3)*sin(3.141592653589\
+793*(-1.0/2.0)+q2)+cos(3.141592653589793*(-1.0/2.0)+q2)*sin(q3))*6.1232339\
+95736766E-17+3.749399456654644E-33)*6.123233995736766E-17-cos(q3)*cos(3.14\
+1592653589793*(-1.0/2.0)+q2)*6.123233995736766E-17+sin(3.141592653589793*(\
+1.0/2.0)+q5)*(sin(q4)*(cos(q3)*cos(3.141592653589793*(-1.0/2.0)+q2)*6.1232\
+33995736766E-17-sin(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)*6.12323399573\
+6766E-17+6.123233995736766E-17)+cos(q4)*(cos(q3)*sin(3.141592653589793*(-1\
+.0/2.0)+q2)+cos(3.141592653589793*(-1.0/2.0)+q2)*sin(q3)))*6.1232339957367\
+66E-17+sin(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)*6.123233995736766E-17+\
+cos(q4)*(cos(q3)*cos(3.141592653589793*(-1.0/2.0)+q2)*6.123233995736766E-1\
+7-sin(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)*6.123233995736766E-17+6.123\
+233995736766E-17)-sin(q4)*(cos(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)+co\
+s(3.141592653589793*(-1.0/2.0)+q2)*sin(q3))+2.295845021658468E-49)/(cos(3.\
+141592653589793*(1.0/2.0)+q5)*(-cos(q3)*cos(3.141592653589793*(-1.0/2.0)+q\
+2)+sin(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)-cos(q4)*(cos(q3)*cos(3.141\
+592653589793*(-1.0/2.0)+q2)*6.123233995736766E-17-sin(q3)*sin(3.1415926535\
+89793*(-1.0/2.0)+q2)*6.123233995736766E-17+6.123233995736766E-17)*6.123233\
+995736766E-17+sin(q4)*(cos(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)+cos(3.\
+141592653589793*(-1.0/2.0)+q2)*sin(q3))*6.123233995736766E-17+3.7493994566\
+54644E-33)+cos(q3)*cos(3.141592653589793*(-1.0/2.0)+q2)*3.749399456654644E\
+-33+sin(3.141592653589793*(1.0/2.0)+q5)*(sin(q4)*(cos(q3)*cos(3.1415926535\
+89793*(-1.0/2.0)+q2)*6.123233995736766E-17-sin(q3)*sin(3.141592653589793*(\
+-1.0/2.0)+q2)*6.123233995736766E-17+6.123233995736766E-17)+cos(q4)*(cos(q3\
+)*sin(3.141592653589793*(-1.0/2.0)+q2)+cos(3.141592653589793*(-1.0/2.0)+q2\
+)*sin(q3)))-sin(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)*3.749399456654644\
+E-33-cos(q4)*(cos(q3)*cos(3.141592653589793*(-1.0/2.0)+q2)*6.1232339957367\
+66E-17-sin(q3)*sin(3.141592653589793*(-1.0/2.0)+q2)*6.123233995736766E-17+\
+6.123233995736766E-17)*6.123233995736766E-17+sin(q4)*(cos(q3)*sin(3.141592\
+653589793*(-1.0/2.0)+q2)+cos(3.141592653589793*(-1.0/2.0)+q2)*sin(q3))*6.1\
+23233995736766E-17-1.405799628556214E-65));
 }
 
-void moveTo2( float* Q, float* S ) {
-
-  // Calculate current position
-  float S0[4];
-  DKFunc( Q, S0 );
-  
-  // Calculate time bottleneck
-  float dS[] = { S[0] - S0[0], S[1] - S0[1], S[2] - S0[2], S[3] - S0[3] };
-  float disp = sqrt( dS[0]*dS[0] + dS[1]*dS[1] + dS[2]*dS[2] );
-  const float MAX_SPEED = 20e-2/1.0;
-  float timeDelay = disp / MAX_SPEED;  
-    
-  // Move motors by steps
-  const long int T_ms = 50;
-  int iters = timeDelay * 1000.0 / T_ms;
-  for( int k = 1; k <= iters; k++ ) {
-    long int t0 = millis();
-    
-    float s[] = { S0[0] + k*dS[0]/iters, S0[1] + k*dS[1]/iters, S0[2] + k*dS[2]/iters, S0[3] + k*dS[3]/iters };
-    float Qg[] = { Q[0], Q[1], Q[2], Q[3] };
-    
-    if( solveNLS( &DKFunc, s, 4, Qg ) < 0 ) {
-      Serial.println( "Problem!");
-      for( int n = 0; n < 4; n++ )
-        Q[n] += random(-5,5)*PI/180;
-      continue;
-    }
-
-    for( int n = 0; n < 4; n++ ) {
-      Q[n] = acos( cos( Qg[n] ) );
-      servo[n].write( Q[n] * 180/PI );
-    }
-    long int dt = T_ms - ( millis() - t0 );
-    delay( max( dt, 0 ) );
-  }
+float equivDisp( float* S0, float* S1 ) {
+  float dS[] = { S1[0]-S0[0], S1[1]-S0[1], S1[2]-S0[2] };
+  return( sqrt( dS[0]*dS[0] + dS[1]*dS[1] + dS[2]*dS[2] ) );
 }
 
-void moveTo4( float* Q, float* S ) {
+void moveTo( float* Q, float* S, int dof ) { // S[] = [x, y, z, --orientation--]
   
   // Calculate current position
-  float S0[4];
+  float S0[dof];
   DKFunc( Q, S0 );
   
-  // Calculate time bottleneck
-  float dS[] = { S[0] - S0[0], S[1] - S0[1], S[2] - S0[2], S[3] - S0[3] };
-  float ds = sqrt( dS[0]*dS[0] + dS[1]*dS[1] + dS[2]*dS[2] );
-  const float MAX_SPEED = 30e-2/1.0;
-  float timeDelay = ds / MAX_SPEED;  
-    
-  printMatrix( (float**) dS, 4, 1, "dS = ") ;
+  float timeDelay = equivDisp( S0, S ) / MAX_SPEED;
   
   // Move motors by steps
-  const int T_ms = 50;
-  int iters = timeDelay*1000.0/T_ms;
-  Serial.println( iters );
+  int iters = ceil( timeDelay*1000.0/DT_MS );
+  float B[dof];
+  for( int n = 0; n < dof; n++ )
+    B[n] = (S[n]-S0[n])/iters;
+
   for( int k = 0; k < iters; k++ ) {
     long int t0 = millis();
-    float dQ[4];
+    float dQ[dof];
     
     // calculate dQ
-    float J[4][4];
-    float B[] = { dS[0]/iters, dS[1]/iters, dS[2]/iters, dS[3]/iters }; 
-    calcJacobian( &DKFunc, Q, 4, (float**) J );
-    solveLS( (float**) J, (float**) B, 4, (float**) dQ );
+    float J[dof][dof];
     
-    for( int n = 0; n < 4; n++ )
-      if( isnan( dQ[n] ) ) {
-        for( int n = 0; n < 4; n++ )
-          dQ[n] = random(-5,5)*PI/180;
-        Serial.println("____________________________________________________________");
-        printMatrix( (float**) Q, 4, 1, "Q = " );
-      }
+    calcJacobian( &DKFunc, Q, dof, (float**) J );
+    solveLS( (float**) J, (float**) B, dof, (float**) dQ );
+
+    increment( Q, dQ );
     
-    for( int n = 0; n < 4; n++ ) {
-        
-      Q[n] = acos( cos( Q[n] + dQ[n] ) );
-      servo[n].write( Q[n] * 180/PI );
-    }
-    long int dt = T_ms - ( millis() - t0 );
+    long int dt = DT_MS - ( millis() - t0 );
     delay( max( dt, 0 ) );
   }
+  printMatrix( (float**) S0, dof, 1, "S = " );
 }
 
 void returnHome( int times ) {
   float S_HOME[] = { 15e-2, 0, 25e-2, 0 };
   
-  moveTo4( Q, S_HOME );
+  moveTo( Q, S_HOME, 4 );
   for( int k = 0; k < times; k++ ) {
     float Sup[] = { S_HOME[0], S_HOME[1], S_HOME[2] + 5e-2, S_HOME[3] };
-    moveTo4( Q, Sup );
+    moveTo( Q, Sup, 4 );
     float Sdown[] = { S_HOME[0], S_HOME[1], S_HOME[2] - 5e-2, S_HOME[3] };
-    moveTo4( Q, Sdown );
+    moveTo( Q, Sdown, 4 );
   }
 }
 
@@ -149,16 +173,48 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin( 9600 );
   
-  pinMode( 7, INPUT_PULLUP );
+  joint[0].attach( 31 );
+  joint[1].attach( 33 );
+  joint[2].attach( 35 );
+  joint[3].attach( 37 );
+  joint[4].attach( 39 );
+  gripper.attach( 41 );
   
-  servo[0].attach( 8 );
-  servo[1].attach( 9 );
-  servo[2].attach( 10 );
-  servo[3].attach( 11 );
-  servo[4].attach( 12 );
+  Q[0] = Q[1] = Q[2] = Q[3] = Q[4] = -0 * PI / 180;
+//  float dQ[] = { 0, 0, 0, 0, 0 };
   
-  Q[0] = Q[1] = Q[2] = Q[3] = PI/2;
-  servo[4].write( 60 );
+//  float QQ[] = {0, 0, 0, 0, 0};
+//  //angleTest( Q );
+//  increment( Q, dQ );
+//  
+//  while(1);
+//  
+//  float S0[5];
+//  DKFunc( Q, S0 );
+//  printMatrix( (float**) S0, DOF, 1, "S0 = " );
+//  
+  float S1[] = { 25e-2, 15e-2, 10e-2, -0.5, 1 };
+  float S2[] = { 25e-2, 15e-2, 30e-2, 0, 0 };
+//  //float S[] = { 20e-2, 0, 21.38e-2, 0, 0 };
+
+//  DKFunc( Q, S );
+//  printMatrix( (float**) S, DOF, 1, "S here = " );
+//  while(1);
+  
+  while(1) {
+    float t = millis() / 1000.0;
+    float S[] = { 25e-2, 10e-2*cos(2*PI*0.3*t), 10e-2*sin(2*PI*0.3*t)+25e-2, 0, 0 };
+    moveTo( Q, S, DOF );
+    //moveTo( Q, S2, DOF );
+//    DKFunc( Q, S0 );
+//    printMatrix( (float**) Q, DOF, 1, "Q now = " );
+//    printMatrix( (float**) S0, DOF, 1, "S now = " );
+  }
+
+  while(1);
+  
+  
+  gripper.write( 60 );
 }
 
 
@@ -172,7 +228,7 @@ void loop() {
   const int N = 5;
   float S_START[] = { 25e-2, -5e-2, 20e-2, 0 };
   
-  moveTo4( Q, S_START );
+  moveTo( Q, S_START, DOF );
   while( digitalRead( 7 ) == HIGH );
   
   long int cumClock = 0;
@@ -192,7 +248,7 @@ void loop() {
     Serial.println( y*1e2 );
     
     float S_point[] = { 480e-3-x, -5e-2, 250e-3-y, 0 };
-    moveTo4( Q, S_point );
+    moveTo( Q, S_point, DOF );
     
     Serial.println("    Go!");
     long int t0 = millis();
