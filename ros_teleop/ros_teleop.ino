@@ -1,14 +1,49 @@
 #include <Servo.h>
 #include "numericalTools.h"
+#include <ros.h>
+#include <std_msgs/String.h>
+#include <std_msgs/Float32.h>
+#include <geometry_msgs/Vector3.h>
+#include <geometry_msgs/Pose.h>
+#include <tf/transform_broadcaster.h>
+#include <ros/time.h>
 
 #define DOF 5
 #define DT_MS 50
 #define MAX_SPEED 20e-2
 
 float Q[DOF];
+float S[] = { 300e-3, 0.0, 250e-3, 0.0, 0.0 };
 Servo joint[DOF];
 Servo gripper;
 
+ros::NodeHandle nh;
+tf::TransformBroadcaster broadcaster;
+geometry_msgs::TransformStamped t;
+
+/*
+void quat2euler321( float* e, geometry_msgs::Pose pose )
+{
+  float qw = pose.orientation.w, qx = pose.orientation.x, qy = pose.orientation.y, qz = pose.orientation.z;
+  e[2] = atan2( 2*(qw*qx+qy*qz), 1-2*(qx*qx+qy*qy) );
+  e[1] = asin( 2*(qw*qy-qz*qx) );
+  e[0] = atan2( 2*(qw*qz+qx*qy), 1-2*(qy*qy+qz*qz) );
+  
+  vec3.x = e[0];
+  vec3.y = e[1];
+  vec3.z = e[2];
+  pub.publish( &vec3 );
+}
+
+void update_pose( const geometry_msgs::Pose& pose )
+{
+  float e[3];
+  quat2euler321( e, pose );
+  float S[] = { pose.position.x, pose.position.y, pose.position.z, 0.0, 0.0 };
+  moveTo( Q, S, DOF );
+  nh.loginfo("here");
+}
+*/
 void increment( float* Q, float* dQ ) {
   
   float dir[] = { -1, 1, -1, 1, -1 };
@@ -17,12 +52,14 @@ void increment( float* Q, float* dQ ) {
   const float TOL = 0.2;
   
   bool fail = false;
-  for( int n = 0; n < 5; n++ )
-    if( fabs( dQ[n] ) > TOL || isnan( dQ[n] ) )
+  for( int n = 0; n < 5; n++ ) {
+    
+    if( isnan( dQ[n] ) )
       fail = true;
+  }
     
   if( fail ) {
-    Serial.println( "Excessive angle increment!" );
+    Serial.println( "NaN!" );
     for( int n = 0; n < 5; n++ )
       dQ[n] = random( -100, 100 ) / 100.0 * 5 * PI / 180;
   }
@@ -124,36 +161,50 @@ float equivDisp( float* S0, float* S1 ) {
   return( sqrt( dS[0]*dS[0] + dS[1]*dS[1] + dS[2]*dS[2] ) );
 }
 
-void moveTo( float* Q, float* S, int dof ) { // S[] = [x, y, z, --orientation--]
+float diff( float* C, float* A, float* B, size_t len ) {
+  float norm2 = 0;
+  for( int n = 0; n < len; n++ ) {
+    C[n] = A[n] - B[n];
+    norm2 += C[n] * C[n];
+  }
+  return norm2;
+}
+
+void scale( float* C, float* A, float scale, size_t len ) {
+  for( int n = 0; n < len; n++ )
+    C[n] = A[n] * scale;
+}
+
+int moveTo( float* Q, float* St, int dof ) { // S[] = [x, y, z, --orientation--]
   
   // Calculate current position
-  float S0[dof];
-  DKFunc( Q, S0 );
-  
-  float timeDelay = equivDisp( S0, S ) / MAX_SPEED;
-  
-  // Move motors by steps
-  int iters = ceil( timeDelay*1000.0/DT_MS );
-  float B[dof];
-  for( int n = 0; n < dof; n++ )
-    B[n] = (S[n]-S0[n])/iters;
+  float Sn[dof], dS[dof], aux[dof];
 
-  for( int k = 0; k < iters; k++ ) {
+  const int MAX_ITERS = 50;
+  const float MAX_ERROR = pow(1e-2, 2);
+  const unsigned long MAX_T = 500;
+  long int T0 = millis();
+  while( millis() - T0 < MAX_T ) {
     long int t0 = millis();
-    float dQ[dof];
     
     // calculate dQ
-    float J[dof][dof];
-    
-    calcJacobian( &DKFunc, Q, dof, (float**) J );
-    solveLS( (float**) J, (float**) B, dof, (float**) dQ );
+    DKFunc( Q, Sn );
+    float norm2 = diff( dS, St, Sn, dof );
+    if( norm2 < MAX_ERROR )
+      return 0;
 
-    increment( Q, dQ );
+    Serial.println( norm2 * 1000 );
     
-    long int dt = DT_MS - ( millis() - t0 );
-    delay( max( dt, 0 ) );
+    float dQ[dof];
+    float J[dof][dof];
+    calcJacobian( &DKFunc, Q, dof, (float**) J );
+    solveLS( (float**) J, (float**) dS, dof, (float**) aux );
+
+    scale( dQ, aux, 0.1, dof );
+    increment( Q, dQ );
   }
-  printMatrix( (float**) S0, dof, 1, "S = " );
+  return 1;
+  //printMatrix( (float**) S0, dof, 1, "S = " );
 }
 
 void returnHome( int times ) {
@@ -171,7 +222,7 @@ void returnHome( int times ) {
 void setup() {
   
   // put your setup code here, to run once:
-  Serial.begin( 9600 );
+  Serial.begin( 115200 );
   
   joint[0].attach( 31 );
   joint[1].attach( 33 );
@@ -181,90 +232,44 @@ void setup() {
   gripper.attach( 41 );
   
   Q[0] = Q[1] = Q[2] = Q[3] = Q[4] = -0 * PI / 180;
-//  float dQ[] = { 0, 0, 0, 0, 0 };
-  
-//  float QQ[] = {0, 0, 0, 0, 0};
-//  //angleTest( Q );
-//  increment( Q, dQ );
-//  
-//  while(1);
-//  
-//  float S0[5];
-//  DKFunc( Q, S0 );
-//  printMatrix( (float**) S0, DOF, 1, "S0 = " );
-//  
-  float S1[] = { 25e-2, 15e-2, 10e-2, -0.5, 1 };
-  float S2[] = { 25e-2, 15e-2, 30e-2, 0, 0 };
-//  //float S[] = { 20e-2, 0, 21.38e-2, 0, 0 };
-
-//  DKFunc( Q, S );
-//  printMatrix( (float**) S, DOF, 1, "S here = " );
-//  while(1);
 
   gripper.write( 170 );
+  float S[] = { 300e-3, 0.0, 250e-3, 0.0, 0.0 };
+  moveTo( Q, S, DOF );
+
   while(1) {
     float t = millis() / 1000.0;
-    float S[] = { 25e-2, 10e-2*cos(2*PI*0.3*t), 10e-2*sin(2*PI*0.3*t)+25e-2, 0, 0 };
-    moveTo( Q, S, DOF );
-    //moveTo( Q, S2, DOF );
-//    DKFunc( Q, S0 );
-//    printMatrix( (float**) Q, DOF, 1, "Q now = " );
-//    printMatrix( (float**) S0, DOF, 1, "S now = " );
+
+    float S0[] = { 200e-3, 100e-3*cos(2*PI*0.2*t), 250e-3+100e-3*sin(2*PI*0.2*t), 0, 0 };
+    moveTo( Q, S0, DOF );
+    delay(50);
   }
 
-  while(1);
-  
-  
-  
-}
+  while(1) {
+    float S1[] = { 300e-3, 100e-3, 300e-3, 0.0, 0.7 };
+    if( moveTo( Q, S1, DOF ) )
+      Serial.println("Error! 1");
 
+    delay(1000);
+
+    float S2[] = { 100e-3, 0.0, 250e-3, -0.7, 0.0 };
+    if( moveTo( Q, S2, DOF ) )
+      Serial.println("Error! 2");
+
+    delay( 1000 );
+  }
+
+  nh.initNode();
+  broadcaster.init( nh );
+}
 
 #define DT 200
 
-
 void loop() {
-  Serial.println("\nNew game =====================================");
-  
-  const long int TIMEOUT =  15000;
-  const int N = 5;
-  float S_START[] = { 25e-2, -5e-2, 20e-2, 0 };
-  
-  moveTo( Q, S_START, DOF );
-  while( digitalRead( 7 ) == HIGH );
-  
-  long int cumClock = 0;
-  for( int k = 0; k < N; k++ ) {
-    
-    returnHome( 2 );
-    
-    float x = random(10, 25) * 1e-2;
-    float y = random(0, 20) * 1e-2;
-    
-//    th = 0 * PI/180.0;
-//    r = 23e-2;
-    
-    Serial.print("\n  New setpoint: \t x = ");
-    Serial.print( x*1e2 );
-    Serial.print(",\t y = ");
-    Serial.println( y*1e2 );
-    
-    float S_point[] = { 480e-3-x, -5e-2, 250e-3-y, 0 };
-    moveTo( Q, S_point, DOF );
-    
-    Serial.println("    Go!");
-    long int t0 = millis();
-    
-    while( digitalRead( 7 ) == HIGH && millis() - t0 < TIMEOUT ); 
-    
-    Serial.print( millis() - t0 >= TIMEOUT ? "    Timeout! (" : "    Hit! (" );
-    Serial.print( (millis() - t0)/1000.0);
-    Serial.println(" s)");
-    
-    cumClock += ( millis() - t0 );
-  }
-
-  Serial.print("\n  Final Score: ");
-  Serial.println( 100 * ( 1 - cumClock*1.0 / (N * TIMEOUT) ) );
-  returnHome( 10 );
+  t.header.frame_id = "/gripper";
+  t.child_frame_id = "/world";
+  t.transform.translation.x = S[0];
+  nh.spinOnce();
+  delay(100);
 }
 
