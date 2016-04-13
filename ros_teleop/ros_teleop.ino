@@ -7,10 +7,15 @@
 #include <geometry_msgs/Pose.h>
 #include <tf/transform_broadcaster.h>
 #include <ros/time.h>
+#include <geometry_msgs/Transform.h>
 
 #define DOF 5
 #define DT_MS 50
 #define MAX_SPEED 20e-2
+
+
+
+
 
 float Q[DOF];
 float S[] = { 300e-3, 0.0, 250e-3, 0.0, 0.0 };
@@ -20,6 +25,53 @@ Servo gripper;
 ros::NodeHandle nh;
 tf::TransformBroadcaster broadcaster;
 geometry_msgs::TransformStamped t;
+
+geometry_msgs::Transform array2Transform( float* S, float q0 );
+
+geometry_msgs::Transform array2Transform( float* S, float q0 ) {
+  geometry_msgs::Transform T;
+
+  T.translation.x = S[0];
+  T.translation.y = S[1];
+  T.translation.z = S[2];
+  float r3 = q0, r2 = S[3], r1 = S[4];
+  T.rotation.w = cos(r1/2)*cos(r2/2)*cos(r1/2) + sin(r1/2)*sin(r2/2)*sin(r3/2);
+  T.rotation.x = sin(r1/2)*cos(r2/2)*cos(r3/2) - cos(r1/2)*sin(r2/2)*sin(r3/2);
+  T.rotation.y = cos(r1/2)*sin(r2/2)*cos(r3/2) + sin(r1/2)*cos(r2/2)*sin(r3/2);
+  T.rotation.z = cos(r1/2)*cos(r2/2)*sin(r3/2) - sin(r1/2)*sin(r2/2)*cos(r3/2);
+  
+  return T;
+}
+
+void Transform2array( float* S, geometry_msgs::Transform T ) {
+  S[0] = T.translation.x;
+  S[1] = T.translation.y;
+  S[2] = T.translation.z;
+  float q0 = T.rotation.w, q1 = T.rotation.x, q2 = T.rotation.y, q3 = T.rotation.z;
+  S[3] = asin(2*(q0*q2-q3*q1));
+  S[4] = atan2(2*(q0*q1+q2*q3), 1-2*(q1*q1+q2*q2));
+}
+
+void update_pose( const geometry_msgs::Transform& T){
+  float S[5], S1[5];
+  
+  char msg[80];
+  
+  
+  sprintf( msg, "Transform: %d %d %d %d %d %d %d", round(T.translation.x*1000), T.translation.y*1000, round(T.translation.z*1000), T.rotation.x*1000, T.rotation.y*1000, T.rotation.z*1000, round(T.rotation.w*1000) );
+  nh.loginfo(msg);
+
+  Transform2array( S1, T );
+  sprintf( msg, "Array: %d %d %d %d %d", round(S1[0]*1000), round(S1[1]*1000), round(S1[2]*1000), round(S1[3]*180/PI), round(S1[4]*180/PI) );
+  nh.loginfo(msg);
+  
+  DKFunc( Q, S );
+
+  moveTo( Q, S, DOF );
+}
+
+ros::Subscriber<geometry_msgs::Transform> sub("TWEt", update_pose );
+
 
 /*
 void quat2euler321( float* e, geometry_msgs::Pose pose )
@@ -180,7 +232,6 @@ int moveTo( float* Q, float* St, int dof ) { // S[] = [x, y, z, --orientation--]
   // Calculate current position
   float Sn[dof], dS[dof], aux[dof];
 
-  const int MAX_ITERS = 50;
   const float MAX_ERROR = pow(1e-2, 2);
   const unsigned long MAX_T = 500;
   long int T0 = millis();
@@ -193,7 +244,7 @@ int moveTo( float* Q, float* St, int dof ) { // S[] = [x, y, z, --orientation--]
     if( norm2 < MAX_ERROR )
       return 0;
 
-    Serial.println( norm2 * 1000 );
+//    Serial.println( norm2 * 1000 );
     
     float dQ[dof];
     float J[dof][dof];
@@ -222,7 +273,7 @@ void returnHome( int times ) {
 void setup() {
   
   // put your setup code here, to run once:
-  Serial.begin( 115200 );
+  //Serial.begin( 115200 );
   
   joint[0].attach( 31 );
   joint[1].attach( 33 );
@@ -237,39 +288,35 @@ void setup() {
   float S[] = { 300e-3, 0.0, 250e-3, 0.0, 0.0 };
   moveTo( Q, S, DOF );
 
-  while(1) {
-    float t = millis() / 1000.0;
-
-    float S0[] = { 200e-3, 100e-3*cos(2*PI*0.2*t), 250e-3+100e-3*sin(2*PI*0.2*t), 0, 0 };
-    moveTo( Q, S0, DOF );
-    delay(50);
-  }
-
-  while(1) {
-    float S1[] = { 300e-3, 100e-3, 300e-3, 0.0, 0.7 };
-    if( moveTo( Q, S1, DOF ) )
-      Serial.println("Error! 1");
-
-    delay(1000);
-
-    float S2[] = { 100e-3, 0.0, 250e-3, -0.7, 0.0 };
-    if( moveTo( Q, S2, DOF ) )
-      Serial.println("Error! 2");
-
-    delay( 1000 );
-  }
-
   nh.initNode();
   broadcaster.init( nh );
+  nh.subscribe(sub);
 }
 
 #define DT 200
 
+int state = 0;
+float S1[] = { 300e-3, 50e-3, 250e-3, 0.0, 0.0 };
+float S2[] = { 300e-3, -50e-3, 250e-3, 0.0, 0.5 };
+unsigned long int t0 = 0;
+const unsigned long int dt = 3000;
+
 void loop() {
-  t.header.frame_id = "/gripper";
-  t.child_frame_id = "/world";
-  t.transform.translation.x = S[0];
+  t.header.frame_id = "World";
+  t.child_frame_id = "EndEffector";
+  float S[5];
+  DKFunc( Q, S );
+  t.transform = array2Transform( S, Q[0] );
+  t.header.stamp = nh.now();
+  broadcaster.sendTransform( t );
+
+  if( millis() - t0 > dt ) {
+    t0 = millis();
+    state = !state;
+    //moveTo( Q, state ? S1 : S2, DOF );
+  }
+  
   nh.spinOnce();
-  delay(100);
+  delay(10);
 }
 
