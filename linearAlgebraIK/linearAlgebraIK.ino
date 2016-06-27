@@ -2,6 +2,18 @@
 #include "Robotics.h"
 #include <Servo.h>
 #include "pitches.h"
+#include <Wire.h> // Enable this line if using Arduino Uno, Mega, etc.
+
+#include "Adafruit_LEDBackpack.h"
+#include "Adafruit_GFX.h"
+
+Adafruit_7segment matrix = Adafruit_7segment();
+
+//#define ROMEO
+#define JULIET
+
+#define PIN_SENSOR 11
+#define PIN_BUZZ 12
 
 // notes in the melody:
 int melody[] = {
@@ -23,32 +35,47 @@ void robot_setup() {
   servo[3].attach(6);
   gripper.attach(7);
 
-//  servo[0].write(100);
-//  servo[1].write(90);
-//  servo[2].write(90);
-//  servo[3].write(90);
-//  gripper.write(60);
+  servo[0].write(90);
+  servo[1].write(90);
+  servo[2].write(90);
+  servo[3].write(85);
+  gripper.write(160);
 }
 
 void robot_write(float *s, float *q) {
 
   const float CONTR = 0.8;
   float q0[4] = {q[0]*CONTR, q[1]*CONTR, q[2]*CONTR, q[3]*CONTR};
-  float error = ik(s, 4, q0);
+  float error = ik(s, 4, q0, fk_juliet);
 
   if (error < 1e-1) {
     memcpy(q, q0, sizeof(float) * 4);
-
-    servo[0].write(-q[0] * 180 / PI + 100);
-    servo[1].write(q[1] * 180 / PI + 90);
-    servo[2].write(q[2] * 180 / PI + 90);
-    servo[3].write(q[3] * 180 / PI + 90);
-
+    servomotor_write(q);
     p("Solution:", q, 1, 4);
   }
   else
     Serial.println("Could not reach target");
 }
+
+#ifdef ROMEO
+void servomotor_write(float *q) {
+  servo[0].write(-q[0] * 180 / PI + 90);
+  servo[1].write(q[1] * 180 / PI + 90);
+  servo[2].write(-q[2] * 180 / PI + 90);
+  servo[3].write(-q[3] * 180 / PI + 85);
+  gripper.write(160);
+}
+#endif
+
+#ifdef JULIET
+void servomotor_write(float *q) {
+  servo[0].write(-q[0] * 180 / PI + 105);
+  servo[1].write(q[1] * 180 / PI + 90);
+  servo[2].write(q[2] * 180 / PI + 90);
+  servo[3].write(q[3] * 180 / PI + 90);
+  gripper.write(70);
+}
+#endif
 
 void p(const char *str, float *_mat, size_t m, size_t n) {
   float (*mat)[n] = (float (*)[n]) _mat;
@@ -68,68 +95,101 @@ void p(const char *str, float *_mat, size_t m, size_t n) {
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
-  randomSeed(600);
+  randomSeed(100);
 
-  pinMode(8, OUTPUT);
+  pinMode(PIN_BUZZ, OUTPUT);
+  pinMode(PIN_SENSOR, INPUT_PULLUP);
 
   robot_setup();
+
+//  servo[0].write(120);
+//  servo[1].write(120);
+//  servo[2].write(120);
+//  servo[3].write(120);
+//  gripper.write(55);
+//
+//  while (true);
+
+  float q[] = {0, 0, 0, 0};
+  float s[] = {0.2, 0, 0.3, 0};
+  robot_write(s, q);
+
+  matrix.begin(0x70);
+
+  matrix.print(0);
+  matrix.writeDisplay();
+
+  while (digitalRead(PIN_SENSOR) == HIGH);
+}
+
+void sing_song() {
+  for (int thisNote = 0; thisNote < 8; thisNote++) {
+
+    int noteDuration = 1000 / noteDurations[thisNote];
+    tone(PIN_BUZZ, melody[thisNote], noteDuration);
+
+    int pauseBetweenNotes = noteDuration * 1.30;
+    delay(pauseBetweenNotes);
+
+    noTone(PIN_BUZZ);
+  }
+}
+
+void move_new_target() {
+
+  float r = random(15, 25) * 1e-2,
+        th = random(10, 90) * PI / 180;
+
+  float q[4] = {0.0, 0.0, 0.0, 0.0};
+  float s[4] = {.4 - r * sin(th), 0, 0.4 - r * cos(th), 0};
+  p("Target:", s, 1, 4);
+
+  digitalWrite(PIN_BUZZ, HIGH);
+  delay(500);
+  robot_write(s, q);
+  digitalWrite(PIN_BUZZ, LOW);
+
+  p( "pos:", q, 1, 4);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
 
-  const float DURATION = 5;
-  const int REPETITIONS = 5;
+  const float DURATION = 10;
+  const int REPETITIONS = 10;
 
-  static float score = -DURATION;
+  static float cumtimer = 0;
   static int tries = 0;
-  
+
   float t = millis() / 1000.0;
-  static float tlast = -DURATION;
+  static float tlast = t;
 
-  if (t - tlast > DURATION || digitalRead(48) == LOW) {
+  matrix.print(DURATION - (t - tlast));
+  matrix.writeDisplay();
 
-    float r = random(15, 25)*1e-2,
-          th = random(30, 70)*PI/180;
-          
-    float x = 35e-2 - r*cos(th),
-          z = 35e-2 - r*sin(th);
+  if (t - tlast > DURATION || digitalRead(PIN_SENSOR) == LOW) {
 
-    float q[4] = {0, 0, 0, 0};
-    float s[4] = {x, 0, z, 0};
-    p("Target:", s, 1, 4);
-    digitalWrite(8, HIGH);
-    delay(500);
-    robot_write(s, q);
-    digitalWrite(8, LOW);
+    move_new_target();
 
-    score += min(t - tlast, DURATION);
+    cumtimer += min(t - tlast, DURATION);
     tries++;
 
-    tlast = t;
+    matrix.print(t - tlast);
+    matrix.writeDisplay();
+
+    tlast = millis() / 1000.0;
   }
 
-  if(tries >= REPETITIONS) {
+  if (tries >= REPETITIONS) {
     Serial.print("Score: ");
-    Serial.println(score);
-    Serial.println((REPETITIONS*DURATION - score) * 100.0/(REPETITIONS*DURATION));
+    Serial.println((REPETITIONS * DURATION - cumtimer) * 100.0 / (REPETITIONS * DURATION));
 
-    for (int thisNote = 0; thisNote < 8; thisNote++) {
-  
-      // to calculate the note duration, take one second
-      // divided by the note type.
-      //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
-      int noteDuration = 1000 / noteDurations[thisNote];
-      tone(8, melody[thisNote], noteDuration);
-  
-      // to distinguish the notes, set a minimum time between them.
-      // the note's duration + 30% seems to work well:
-      int pauseBetweenNotes = noteDuration * 1.30;
-      delay(pauseBetweenNotes);
-      // stop the tone playing:
-      noTone(8);
-    }
-    while(true);
+    matrix.print((REPETITIONS * DURATION - cumtimer) * 100.0 / (REPETITIONS * DURATION));
+    matrix.writeDisplay();
+
+    sing_song();
+
+    while (true);
   }
-
 }
+

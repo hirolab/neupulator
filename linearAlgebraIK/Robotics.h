@@ -1,10 +1,11 @@
 
-void fk_al5d(float *q, size_t dof, float *s) {
+void fk_juliet(float *q, float *s) {
 
+  float dof = 4;
   float angle[] = {q[0], q[1]+PI/2, q[2]-PI/2, q[3]},
-        offset[] = {.07, 0, 0, 0},
+        offset[] = {.105, 0, 0, 0},
         twist[] = {PI/2, 0, -PI/2, 0},
-        length[] = {.02, .145, .185, .075};
+        length[] = {.019, .146, .186, .075};
 
   float T[4][4] = {
     {1, 0, 0, 0},
@@ -34,17 +35,17 @@ void fk_al5d(float *q, size_t dof, float *s) {
         for(p = 0; p < 4; p++)
           T[i][j] += tmp[i][p] * A[p][j];
       }
-//    matMultiply((float*) tmp, (float*) A, 4, 4, 4, (float*) T);
   }
 
-  s[0] = T[0][3];
-  s[1] = T[1][3];
-  s[2] = T[2][3];
-  s[3] = -atan(T[0][1] / T[0][0]);
+  // select coordinates
+  s[0] = T[0][3]; // x
+  s[1] = T[1][3]; // y
+  s[2] = T[2][3]; // z
+  s[3] = -atan(T[0][1] / T[0][0]); // yaw (ZYX)
 }
 
 
-void jacobian(void (*fk)(float*, size_t, float*), float *q, size_t m, size_t n, float *_jac) {
+void jacobian(void (*fk)(float*, float*), float *q, size_t m, size_t n, float *_jac) {
   // jacobian(fk, q, 4, 3, (float*) jac);
   float (*jac)[n] = (float (*)[n]) _jac;
   float s1[m], s2[m];
@@ -54,9 +55,9 @@ void jacobian(void (*fk)(float*, size_t, float*), float *q, size_t m, size_t n, 
 
   for(j = 0; j < m; j++) {
     q[j] += EPS;
-    fk(q, m, s2);
+    fk(q, s2);
     q[j] -= 2*EPS;
-    fk(q, m, s1);
+    fk(q, s1);
     q[j] += EPS;
     for(i = 0; i < n; i++)
       jac[i][j] = (s2[i] - s1[i])/(2*EPS);
@@ -64,7 +65,7 @@ void jacobian(void (*fk)(float*, size_t, float*), float *q, size_t m, size_t n, 
 }
 
 
-float ik(float *t, size_t dof, float *q) {
+float ik(float *t, size_t dof, float *q, void (*fk)(float*, float*)) {
 // Apply IK for the fk function
 //  t: pointer to target pose
 //  q: pointer to joint solution
@@ -82,7 +83,7 @@ float ik(float *t, size_t dof, float *q) {
 
   int k, j;
 
-  fk_al5d(q, dof, s);
+  fk(q, s);
 
   for(k = 0; k < MAX_ITER; k++) {
 
@@ -92,7 +93,7 @@ float ik(float *t, size_t dof, float *q) {
 
     if(enorm < MAX_NORM) break;
 
-    jacobian(fk_al5d, q, dof, dof, (float*) jac);
+    jacobian(fk, q, dof, dof, (float*) jac);
     solve((float*) jac, e, dof, dq);
 
     // saturate maximum angle increment
@@ -102,7 +103,7 @@ float ik(float *t, size_t dof, float *q) {
     for (j = 0; j < dof; j++)
       q[j] += dq[j]*factor;
 
-    fk_al5d(q, dof, s);
+    fk(q, s);
   }
   
   return(enorm);
