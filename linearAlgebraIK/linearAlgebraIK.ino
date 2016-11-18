@@ -9,8 +9,8 @@
 
 Adafruit_7segment matrix = Adafruit_7segment();
 
-//#define ROMEO
-#define JULIET
+#define ROMEO
+//#define JULIET
 
 #define PIN_SENSOR 11
 #define PIN_BUZZ 12
@@ -111,7 +111,7 @@ void setup() {
 //  while (true);
 
   float q[] = {0, 0, 0, 0};
-  float s[] = {0.2, 0, 0.3, 0};
+  float s[] = {0.25, 0, 0.2, 0};
   robot_write(s, q);
 
   matrix.begin(0x70);
@@ -137,17 +137,19 @@ void sing_song() {
 
 void move_new_target() {
 
-  float r = random(15, 25) * 1e-2,
-        th = random(10, 90) * PI / 180;
+  float r = random(15, 30) * 1e-2,
+        th = random(10, 75) * PI / 180,
+        x0 = 25e-2,
+        z0 = 35e-2,
+        y0 = 10e-2;
 
   float q[4] = {0.0, 0.0, 0.0, 0.0};
-  float s[4] = {.4 - r * sin(th), 0, 0.4 - r * cos(th), 0};
+//  float s[4] = {.4 - r * sin(th), 0, 0.4 - r * cos(th), 0}; // XZ plane
+  float s[4] = {x0, y0 - r*sin(th), z0 - r*cos(th), 0}; // YZ plane
   p("Target:", s, 1, 4);
 
-  digitalWrite(PIN_BUZZ, HIGH);
-  delay(500);
+  tone(PIN_BUZZ, NOTE_G3, 500);
   robot_write(s, q);
-  digitalWrite(PIN_BUZZ, LOW);
 
   p( "pos:", q, 1, 4);
 }
