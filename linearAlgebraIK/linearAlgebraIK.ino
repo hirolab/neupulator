@@ -95,31 +95,16 @@ void p(const char *str, float *_mat, size_t m, size_t n) {
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
-  randomSeed(100);
+  randomSeed(analogRead(A0));
 
   pinMode(PIN_BUZZ, OUTPUT);
   pinMode(PIN_SENSOR, INPUT_PULLUP);
 
   robot_setup();
 
-//  servo[0].write(120);
-//  servo[1].write(120);
-//  servo[2].write(120);
-//  servo[3].write(120);
-//  gripper.write(55);
-//
-//  while (true);
-
-  float q[] = {0, 0, 0, 0};
-  float s[] = {0.25, 0, 0.2, 0};
-  robot_write(s, q);
-
   matrix.begin(0x70);
 
-  matrix.print(0);
-  matrix.writeDisplay();
 
-  while (digitalRead(PIN_SENSOR) == HIGH);
 }
 
 void sing_song() {
@@ -148,50 +133,53 @@ void move_new_target() {
   float s[4] = {x0, y0 - r*sin(th), z0 - r*cos(th), 0}; // YZ plane
   p("Target:", s, 1, 4);
 
-  tone(PIN_BUZZ, NOTE_G3, 500);
   robot_write(s, q);
 
   p( "pos:", q, 1, 4);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  
+  float q[] = {0, 0, 0, 0};
+  float s[] = {0.25, 0, 0.2, 0}; // home
+  robot_write(s, q);
 
-  const float DURATION = 10;
-  const int REPETITIONS = 10;
-
-  static float cumtimer = 0;
-  static int tries = 0;
-
-  float t = millis() / 1000.0;
-  static float tlast = t;
-
-  matrix.print(DURATION - (t - tlast));
+  matrix.print(0);
   matrix.writeDisplay();
 
-  if (t - tlast > DURATION || digitalRead(PIN_SENSOR) == LOW) {
+  while (digitalRead(PIN_SENSOR) == HIGH);
+  tone(PIN_BUZZ, NOTE_G3, 500);
+  delay(500);
 
+  const float DURATION = 10000;
+  const int REPETITIONS = 10;
+
+  float cumtimer = 0;
+
+  for(int tries = 0; tries < REPETITIONS; tries++) {
+
+    long int t0 = millis();
+  
     move_new_target();
+    while (digitalRead(PIN_SENSOR) == HIGH && millis() - t0 < DURATION) {
+      matrix.print( 1e-3*(millis() - t0) );
+      matrix.writeDisplay();
+      delay(100);
+    }
 
-    cumtimer += min(t - tlast, DURATION);
-    tries++;
-
-    matrix.print(t - tlast);
-    matrix.writeDisplay();
-
-    tlast = millis() / 1000.0;
+    cumtimer += millis() - t0;
+    
+    tone(PIN_BUZZ, NOTE_G3, 500);
+    delay(500);
   }
+  
+  Serial.print("Score: ");
+  Serial.println((REPETITIONS * DURATION - cumtimer) * 100.0 / (REPETITIONS * DURATION));
 
-  if (tries >= REPETITIONS) {
-    Serial.print("Score: ");
-    Serial.println((REPETITIONS * DURATION - cumtimer) * 100.0 / (REPETITIONS * DURATION));
+  matrix.print((REPETITIONS * DURATION - cumtimer) * 100.0 / (REPETITIONS * DURATION));
+  matrix.writeDisplay();
 
-    matrix.print((REPETITIONS * DURATION - cumtimer) * 100.0 / (REPETITIONS * DURATION));
-    matrix.writeDisplay();
-
-    sing_song();
-
-    while (true);
-  }
+  sing_song();
+  delay(1000);
 }
 
