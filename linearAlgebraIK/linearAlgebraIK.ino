@@ -8,12 +8,13 @@
 #include "Adafruit_GFX.h"
 
 Adafruit_7segment matrix = Adafruit_7segment();
+float _q[4] = {0, 0, 0, 0};
 
 #define ROMEO
 //#define JULIET
 
-#define PIN_SENSOR 11
-#define PIN_BUZZ 12
+#define PIN_SENSOR 8
+#define PIN_BUZZ 9
 
 // notes in the melody:
 int melody[] = {
@@ -29,11 +30,11 @@ Servo servo[4], gripper;
 
 void robot_setup() {
 
-  servo[0].attach(3);
-  servo[1].attach(4);
-  servo[2].attach(5);
-  servo[3].attach(6);
-  gripper.attach(7);
+  servo[0].attach(2);
+  servo[1].attach(3);
+  servo[2].attach(4);
+  servo[3].attach(5);
+  gripper.attach(6);
 
   servo[0].write(90);
   servo[1].write(90);
@@ -44,13 +45,22 @@ void robot_setup() {
 
 void robot_write(float *s, float *q) {
 
-  const float CONTR = 0.8;
+  const float CONTR = 0.8; // find solution closer to neutral state
   float q0[4] = {q[0]*CONTR, q[1]*CONTR, q[2]*CONTR, q[3]*CONTR};
   float error = ik(s, 4, q0, fk_juliet);
 
   if (error < 1e-1) {
+    int N = 30;
+    for(int k = 0; k <= N; k++) {
+      float qq[] = {q[0]*(N-k)/N + q0[0]*k/N,
+        q[1]*(N-k)/N + q0[1]*k/N,
+        q[2]*(N-k)/N + q0[2]*k/N,
+        q[3]*(N-k)/N + q0[3]*k/N};
+
+        servomotor_write(qq);
+        delay(500/N);
+    }
     memcpy(q, q0, sizeof(float) * 4);
-    servomotor_write(q);
     p("Solution:", q, 1, 4);
   }
   else
@@ -72,7 +82,7 @@ void servomotor_write(float *q) {
   servo[0].write(-q[0] * 180 / PI + 105);
   servo[1].write(q[1] * 180 / PI + 90);
   servo[2].write(q[2] * 180 / PI + 90);
-  servo[3].write(q[3] * 180 / PI + 90);
+  servo[3].write(q[3] * 180 / PI + 110);
   gripper.write(70);
 }
 #endif
@@ -128,7 +138,7 @@ void move_new_target() {
         z0 = 35e-2,
         y0 = 10e-2;
 
-  float q[4] = {0.0, 0.0, 0.0, 0.0};
+  float *q = _q;
 //  float s[4] = {.4 - r * sin(th), 0, 0.4 - r * cos(th), 0}; // XZ plane
   float s[4] = {x0, y0 - r*sin(th), z0 - r*cos(th), 0}; // YZ plane
   p("Target:", s, 1, 4);
@@ -140,7 +150,7 @@ void move_new_target() {
 
 void loop() {
   
-  float q[] = {0, 0, 0, 0};
+  float *q = _q;
   float s[] = {0.25, 0, 0.2, 0}; // home
   robot_write(s, q);
 
