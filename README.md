@@ -6,7 +6,7 @@ The use of human-interactive robots in industry and daily life has become more p
 
 **Fig.1)**  Assembly of the Neu-pulator. (1) “Shoulder” and “Elbow” servomotor joints, (2) Wooden “Arm” Linkages, (3) T-slot Aluminum Frame, (4) “Shoulder Blade” Adapter, (5) Base Plate, (6) EMG Sensors, (7) Arduino and Breadboard, (8) Safety Power Switch
 
-![](imgs/arm_reaching_challeng.gif)
+![](imgs/arm_reaching_challenge.gif)
 
 **Fig.2)** Robotic Arm Reaching Challenge. Neupulator must controlled via the EMG sensors to touch the runner robot in the shortest time.
 
